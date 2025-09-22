@@ -1,0 +1,64 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Baixar dados do S&P 500 desde o início
+sp500 = yf.download('^GSPC', start='1900-01-01')
+sp500['Return'] = sp500['Close'].pct_change()
+
+# Detectar eventos de 3 quedas seguidas com perda > 10%
+eventos = []
+for i in range(3, len(sp500) - 3):
+    janela_queda = sp500['Return'].iloc[i-3:i]
+    if all(janela_queda < 0) and janela_queda.sum() <= -0.10:
+        janela_alta = sp500['Return'].iloc[i:i+3]
+        retorno_alta = (1 + janela_alta).prod() - 1
+        eventos.append({
+            'Queda Início': sp500.index[i-3],
+            'Queda Fim': sp500.index[i-1],
+            'Retorno Queda (%)': janela_queda.sum() * 100,
+            'Alta Início': sp500.index[i],
+            'Alta Fim': sp500.index[i+2],
+            'Retorno Alta (%)': retorno_alta * 100
+        })
+
+# Criar DataFrame
+eventos_df = pd.DataFrame(eventos)
+
+# Gráfico com áreas sombreadas
+plt.figure(figsize=(14,6))
+plt.plot(sp500['Close'], label='S&P 500', color='black')
+for _, row in eventos_df.iterrows():
+    plt.axvspan(row['Queda Início'], row['Alta Fim'], color='red', alpha=0.2)
+
+plt.title('Períodos de Queda (>10% em 3 dias) e Recuperação nos 3 dias seguintes')
+plt.xlabel('Data')
+plt.ylabel('Preço Ajustado do S&P 500')
+plt.legend()
+plt.grid(True)
+
+# Adicionar fonte abaixo do gráfico
+plt.figtext(0.99, 0.01, "Fonte: Yahoo Finance / Santa Fé Investimentos",
+            horizontalalignment='right', fontsize=9, style='italic')
+
+plt.tight_layout()
+plt.show()
+
+# Formatando a tabela
+eventos_df_formatada = eventos_df.copy()
+eventos_df_formatada['Queda Início'] = eventos_df_formatada['Queda Início'].dt.strftime('%d/%m/%Y')
+eventos_df_formatada['Queda Fim'] = eventos_df_formatada['Queda Fim'].dt.strftime('%d/%m/%Y')
+eventos_df_formatada['Alta Início'] = eventos_df_formatada['Alta Início'].dt.strftime('%d/%m/%Y')
+eventos_df_formatada['Alta Fim'] = eventos_df_formatada['Alta Fim'].dt.strftime('%d/%m/%Y')
+eventos_df_formatada['Retorno Queda (%)'] = eventos_df_formatada['Retorno Queda (%)'].round(2)
+eventos_df_formatada['Retorno Alta (%)'] = eventos_df_formatada['Retorno Alta (%)'].round(2)
+
+# Reorganizar colunas
+eventos_df_formatada = eventos_df_formatada[[
+    'Queda Início', 'Queda Fim', 'Retorno Queda (%)',
+    'Alta Início', 'Alta Fim', 'Retorno Alta (%)'
+]]
+
+# Exibir a tabela formatada
+print("\nTabela de Eventos Detectados:")
+print(eventos_df_formatada.to_string(index=False))
