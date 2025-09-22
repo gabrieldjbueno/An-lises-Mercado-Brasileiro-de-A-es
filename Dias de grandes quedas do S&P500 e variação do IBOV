@@ -1,0 +1,81 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Baixar dados desde 2000
+start_date = "2000-01-01"
+sp500 = yf.download("^GSPC", start=start_date)
+ibov = yf.download("^BVSP", start=start_date)
+
+# Calcular variação percentual diária com 'Close'
+sp500['ret'] = sp500['Close'].pct_change() * 100
+ibov['ret'] = ibov['Close'].pct_change() * 100
+
+# Combinar em um único DataFrame
+df = pd.DataFrame({
+    'SP500': sp500['ret'],
+    'IBOV': ibov['ret']
+}).dropna()
+
+# Filtrar dias com queda forte do S&P 500
+queda_sp500 = df[df['SP500'] < -4.5]
+
+# Estatísticas
+media = queda_sp500['IBOV'].mean()
+mediana = queda_sp500['IBOV'].median()
+desvio = queda_sp500['IBOV'].std()
+
+print(f"Total de dias com S&P500 caindo > 4,5%: {len(queda_sp500)}")
+print(f"Média do IBOV nesses dias: {media:.2f}%")
+print(f"Mediana do IBOV nesses dias: {mediana:.2f}%")
+print(f"Desvio padrão do IBOV nesses dias: {desvio:.2f}%\n")
+
+# Dias com IBOV positivo
+dias_positivos = queda_sp500[queda_sp500['IBOV'] > 0]
+print("Dias com IBOV positivo mesmo com S&P 500 caindo mais de 4,5%:")
+print(dias_positivos[['SP500', 'IBOV']])
+
+# Lista de todas as performances
+print("\nLista de performances do IBOV em dias com queda > 4,5% do S&P 500:")
+for date, row in queda_sp500.iterrows():
+    print(f"{date.date()} | {row['IBOV']:.2f}%")
+
+# Plot
+plt.figure(figsize=(10, 6))
+valores = queda_sp500['IBOV'].values
+bins = np.histogram_bin_edges(valores, bins=15)
+
+n, bins, patches = plt.hist(valores, bins=bins, edgecolor='black')
+
+# Destacar positivos e adicionar rótulo com o valor da performance
+for i, patch in enumerate(patches):
+    bin_left = bins[i]
+    bin_right = bins[i + 1]
+    bin_center = 0.5 * (bin_left + bin_right)
+
+    valores_bin = dias_positivos[(dias_positivos['IBOV'] > bin_left) & (dias_positivos['IBOV'] <= bin_right)]
+
+    if not valores_bin.empty:
+        patch.set_facecolor('red')
+        for j, (idx, row) in enumerate(valores_bin.iterrows()):
+            plt.text(bin_center, n[i] + 0.1 + j * 0.3,
+                     f"{row['IBOV']:.2f}%", ha='center', va='bottom',
+                     fontsize=9, color='red')
+
+# Linhas de média e mediana
+plt.axvline(media, color='blue', linestyle='--', label=f'Média: {media:.2f}%')
+plt.axvline(mediana, color='orange', linestyle='--', label=f'Mediana: {mediana:.2f}%')
+
+plt.title('Variação do Ibovespa nos dias com queda > 4,5% do S&P 500')
+plt.xlabel('Variação diária do Ibovespa (%)')
+plt.ylabel('Frequência')
+plt.grid(True)
+plt.legend()
+
+# Fonte abaixo do gráfico
+plt.figtext(0.5, -0.05, 'Fonte: Yahoo Finance/ Santa Fé Investimentos',
+            ha='center', fontsize=9, style='italic')
+
+plt.tight_layout()
+plt.show()
