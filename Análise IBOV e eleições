@@ -1,0 +1,91 @@
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
+import os
+from IPython.display import Image, display
+
+# === Configurações ===
+sns.set_style("whitegrid")
+plt.rcParams["figure.dpi"] = 120
+
+# Datas dos primeiros turnos das eleições
+eleicoes = {
+    "2022": datetime(2022, 10, 2),
+    "2018": datetime(2018, 10, 7),
+    "2014": datetime(2014, 10, 5),
+}
+
+# Baixar dados do IBOVESPA (Close) e limpar MultiIndex
+ibov = yf.download("^BVSP", start="2013-01-01", end="2022-10-03")[["Close"]]
+ibov.columns = ["IBOV"]
+ibov = ibov.squeeze()  # Transforma DataFrame em Series
+
+# Garantir índice datetime limpo
+ibov.index = pd.to_datetime(ibov.index)
+ibov = ibov.sort_index()
+
+# Função para pegar o preço mais próximo anterior ou igual à data
+def preco_proximo(data_alvo):
+    return ibov[:data_alvo].iloc[-1]
+
+# Função para calcular retorno acumulado entre data e meses antes
+def calcular_retorno_periodo(data_eleicao, meses):
+    data_inicio = data_eleicao - pd.DateOffset(months=meses)
+    preco_inicio = preco_proximo(data_inicio)
+    preco_fim = preco_proximo(data_eleicao)
+    retorno = (preco_fim / preco_inicio - 1) * 100
+    return round(retorno, 2)
+
+# === Construir a tabela de retornos ===
+periodos = [18, 12, 6, 3]
+linhas = []
+for ano, data in eleicoes.items():
+    linha = {"Ano": ano}
+    for m in periodos:
+        linha[f"{m}m"] = calcular_retorno_periodo(data, m)
+    linhas.append(linha)
+
+tabela_retorno = pd.DataFrame(linhas).set_index("Ano")
+
+# Salvar e imprimir tabela
+tabela_retorno.to_csv("retornos_ibov_eleicoes.csv")
+print("📊 Tabela de Retornos do Ibovespa antes das eleições:")
+print(tabela_retorno)
+print("\n✅ Tabela salva como 'retornos_ibov_eleicoes.csv'")
+
+# === Calcular Volatilidade Móvel (21 dias) ===
+volatilidade_movel = ibov.pct_change().rolling(window=21).std() * 100  # percentual
+
+# === Gerar gráficos ===
+output_dir = "graficos_eleicoes"
+os.makedirs(output_dir, exist_ok=True)
+
+print("\n📈 Gerando gráficos por eleição:")
+
+for ano, data in eleicoes.items():
+    inicio_periodo = data - pd.DateOffset(months=18)
+    dados = ibov.loc[(ibov.index >= inicio_periodo) & (ibov.index <= data)]
+    vol = volatilidade_movel.loc[dados.index]
+
+    fig, ax1 = plt.subplots(figsize=(14, 6))
+    ax1.plot(dados.index, dados.values, label="IBOV", color="blue", linewidth=2)
+    ax1.set_ylabel("IBOVESPA", color="blue")
+    ax1.tick_params(axis='y', labelcolor='blue')
+
+    ax2 = ax1.twinx()
+    ax2.plot(vol.index, vol.values, label="Volatilidade Móvel (21d)", color="orange", linewidth=2)
+    ax2.set_ylabel("Volatilidade (%)", color="orange")
+    ax2.tick_params(axis='y', labelcolor='orange')
+
+    ax1.axvline(data, color='red', linestyle='--', label='Data da Eleição')
+    ax1.set_title(f"IBOVESPA e Volatilidade Móvel - Eleição {ano}")
+    fig.tight_layout()
+    caminho_arquivo = f"{output_dir}/ibov_vol_{ano}.png"
+    fig.savefig(caminho_arquivo)
+    plt.close()
+
+    print(f"✅ Gráfico salvo: {caminho_arquivo}")
+    display(Image(filename=caminho_arquivo))
