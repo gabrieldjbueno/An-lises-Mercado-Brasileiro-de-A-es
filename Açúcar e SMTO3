@@ -1,0 +1,48 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Baixar cotações
+tickers = {
+    'Açúcar Futuro': 'SB=F',
+    'ETF CANE': 'CANE',
+    'São Martinho': 'SMTO3.SA'
+}
+
+data = yf.download(list(tickers.values()), start="2020-01-01")['Close']
+data.columns = tickers.keys()
+data = data.dropna()
+
+# Calcular performance base 100
+perf = data / data.iloc[0] * 100
+
+# Plotar performance com valores finais na ponta
+plt.figure(figsize=(12, 6))
+for col in perf.columns:
+    plt.plot(perf.index, perf[col], label=col)
+    plt.text(perf.index[-1], perf[col].iloc[-1], f"{perf[col].iloc[-1]:.1f}", va='center')
+
+plt.title("Performance Acumulada dos Ativos (base 100)")
+plt.ylabel("Índice Base 100")
+plt.grid(True)
+plt.legend(loc='upper left')
+plt.figtext(0.5, -0.02, "Fonte: Yahoo Finance / Santa Fé Investimentos", ha="center", fontsize=9)
+plt.tight_layout()
+plt.show()
+
+# Tracking Error = Desvio padrão da diferença de retornos
+ret = data.pct_change().dropna()
+tracking_error = (ret['ETF CANE'] - ret['Açúcar Futuro']).std() * (252 ** 0.5)
+
+print("\n📊 Tracking Error")
+print(f"O Tracking Error anualizado do ETF CANE em relação ao contrato futuro de açúcar é de {tracking_error:.2%}\n")
+
+# Correlação com heatmap
+cor = ret.corr()
+
+plt.figure(figsize=(6, 4))
+sns.heatmap(cor, annot=True, cmap='coolwarm_r', vmin=-1, vmax=1)
+plt.title("Matriz de Correlação entre os Ativos")
+plt.tight_layout()
+plt.show()
