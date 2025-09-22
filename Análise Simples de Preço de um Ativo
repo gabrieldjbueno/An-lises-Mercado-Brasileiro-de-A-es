@@ -1,0 +1,62 @@
+import yfinance as yf
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+# Função para calcular as bandas de Bollinger
+def bollinger_bands(data, window=252, num_std=2):
+    rolling_mean = data['Close'].rolling(window).mean()
+    rolling_std = data['Close'].rolling(window).std()
+    upper_band = rolling_mean + (rolling_std * num_std)
+    lower_band = rolling_mean - (rolling_std * num_std)
+    return rolling_mean, upper_band, lower_band
+
+# Função para formatar os valores do volume
+def format_volume(value, pos):
+    if value >= 1e9:
+        return f'{value*1e-9:.1f}B'
+    elif value >= 1e6:
+        return f'{value*1e-6:.1f}M'
+    elif value >= 1e3:
+        return f'{value*1e-3:.1f}K'
+    return int(value)
+
+# Função para plotar os gráficos
+def plot_stock_with_bollinger(ticker, title):
+    # Baixando os dados com yfinance
+    stock_data = yf.download(ticker, period='2y', auto_adjust=False)
+
+    # Calculando as bandas de Bollinger
+    stock_data['252_MA'], stock_data['Upper_Band'], stock_data['Lower_Band'] = bollinger_bands(stock_data)
+
+    # Configuração do estilo seaborn
+    sns.set(style='darkgrid')
+
+    # Criando a figura e eixos
+    fig, ax1 = plt.subplots(figsize=(14, 7))
+
+    # Gráfico de preço
+    ax1.plot(stock_data.index, stock_data['Close'], label='Preço Ajustado', color='blue')
+    ax1.plot(stock_data.index, stock_data['252_MA'], label='Média Móvel 252 períodos', color='green', linestyle='--')
+
+    # Preenchendo as Bandas de Bollinger apenas onde não há NaN
+    if not stock_data['Upper_Band'].isnull().all() and not stock_data['Lower_Band'].isnull().all():
+        ax1.fill_between(stock_data.index,
+                         stock_data['Upper_Band'].fillna(0).astype(float),
+                         stock_data['Lower_Band'].fillna(0).astype(float),
+                         color='orange', alpha=0.3, label='Bandas de Bollinger')
+
+    # Título e rótulos
+    ax1.set_title(f'{title} - Preço com Bandas de Bollinger e Volume', fontsize=16)
+    ax1.set_ylabel('Preço Ajustado (R$)', fontsize=12)
+    ax1.legend(loc='upper left', fontsize=12)
+
+
+    # Adicionando o rodapé
+    plt.figtext(0.5, 0.01, "Fonte: Yahoo Finance/ Não é recomendação de Compra e Venda", ha="center", fontsize=10, style='italic')
+
+    plt.show()
+
+# Gerando gráficos para JSLG3 e SIMH3
+plot_stock_with_bollinger('PETZ3.SA', 'PETZ3')
+plot_stock_with_bollinger('SMFT3.SA', 'SMFT3')
