@@ -1,0 +1,38 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Baixar dados dos últimos 5 anos
+ouro = yf.download('GC=F', period='5y')['Close']
+cobre = yf.download('HG=F', period='5y')['Close']
+aura = yf.download('AURA33.SA', period='5y')['Close']
+
+# Juntar os dados num DataFrame
+df = pd.concat([ouro, cobre, aura], axis=1)
+df.columns = ['Ouro', 'Cobre', 'AURA33']
+df.dropna(inplace=True)
+
+# Calcular retorno diário
+retornos = df.pct_change().dropna()
+
+# Calcular Tracking Error: diferença entre AURA33 e média (benchmark ouro+cobre)
+benchmark = (retornos['Ouro'] + retornos['Cobre']) / 2
+tracking_error = (retornos['AURA33'] - benchmark).std()
+
+# Calcular performance acumulada
+acumulado = (1 + retornos[['Ouro', 'Cobre', 'AURA33']]).cumprod()
+
+# Plot
+plt.figure(figsize=(12,6))
+for col in acumulado.columns:
+    plt.plot(acumulado.index, acumulado[col], label=col)
+    valor_final = acumulado[col].iloc[-1]
+    plt.text(acumulado.index[-1], valor_final, f'{valor_final:.2f}x',
+             va='center', ha='left', fontsize=9)
+
+plt.title(f'Performance acumulada - últimos 5 anos\nTracking Error da AURA33 vs Média Ouro+Cobre: {tracking_error:.2%}')
+plt.legend()
+plt.grid()
+plt.figtext(0.5, -0.02, "Fonte: Yahoo Finance / Santa Fé Investimentos", ha="center", fontsize=9)
+plt.tight_layout()
+plt.show()
