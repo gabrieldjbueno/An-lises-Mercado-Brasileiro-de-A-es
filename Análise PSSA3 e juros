@@ -1,0 +1,85 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import requests
+from datetime import datetime, timedelta
+from io import StringIO
+
+# Parâmetros
+ticker = "PSSA3.SA"
+end_date = datetime.today()
+start_date = end_date - timedelta(days=5*365)
+
+# Baixar dados da ação
+df = yf.download(ticker, start=start_date, end=end_date)
+if isinstance(df.columns, pd.MultiIndex):
+    df.columns = df.columns.droplevel(1)
+df = df[['Close']].copy()
+df.index.name = 'Date'
+df.reset_index(inplace=True)
+df['Date'] = pd.to_datetime(df['Date'])
+
+# Função robusta para pegar a Selic suavizada
+def get_selic_clean(start_date, end_date):
+    start = start_date.strftime('%d/%m/%Y')
+    end = end_date.strftime('%d/%m/%Y')
+    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.4189/dados?formato=csv&dataInicial={start}&dataFinal={end}"
+    response = requests.get(url)
+    selic = pd.read_csv(StringIO(response.text), sep=';', parse_dates=['data'], dayfirst=True)
+    selic.columns = ['Date', 'Selic']
+    selic.set_index('Date', inplace=True)
+    selic = selic.resample('D').ffill()
+    selic['Selic'] = selic['Selic'].round(2)
+    selic['Selic'] = selic['Selic'].interpolate(method='pad', limit_direction='forward')
+    selic = selic.dropna()
+    selic.reset_index(inplace=True)
+    return selic
+
+# Coleta da Selic
+selic = get_selic_clean(start_date, end_date)
+selic['Date'] = pd.to_datetime(selic['Date'])
+
+# Merge
+merged = pd.merge(df, selic, how='left', on='Date')
+merged.dropna(inplace=True)
+
+# Médias móveis e Bandas de Bollinger
+for ma in [21, 34, 55, 100, 150, 200]:
+    merged[f'MA_{ma}'] = merged['Close'].rolling(window=ma).mean()
+merged['BB_Middle'] = merged['Close'].rolling(window=20).mean()
+merged['BB_Std'] = merged['Close'].rolling(window=20).std()
+merged['BB_Upper'] = merged['BB_Middle'] + 2 * merged['BB_Std']
+merged['BB_Lower'] = merged['BB_Middle'] - 2 * merged['BB_Std']
+
+# Gráfico 1 - Médias móveis e Bandas de Bollinger
+plt.figure(figsize=(14, 6))
+plt.plot(merged['Date'], merged['Close'], label='Preço', linewidth=1.5)
+for ma in [21, 34, 55, 100, 150, 200]:
+    plt.plot(merged['Date'], merged[f'MA_{ma}'], label=f'MM{ma}')
+plt.fill_between(merged['Date'], merged['BB_Lower'], merged['BB_Upper'], color='gray', alpha=0.2)
+plt.title(f'{ticker} - Médias Móveis e Bandas de Bollinger')
+plt.xlabel('Data')
+plt.ylabel('Preço (R$)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.figtext(0.5, -0.05, 'Fonte: Yahoo Finance / Elaboração: Santa Fé Investimentos', ha='center', fontsize=9)
+plt.show()
+
+# Gráfico 2 - Preço da Ação vs Selic (corrigido)
+fig, ax1 = plt.subplots(figsize=(14, 6))
+ax1.plot(merged['Date'], merged['Close'], color='blue', label='Preço da Ação')
+ax1.set_xlabel('Data')
+ax1.set_ylabel('Preço da Ação (R$)', color='blue')
+ax1.tick_params(axis='y', labelcolor='blue')
+
+ax2 = ax1.twinx()
+ax2.plot(merged['Date'], merged['Selic'], color='red', label='Taxa Selic')
+ax2.set_ylabel('Taxa Selic (%)', color='red')
+ax2.tick_params(axis='y', labelcolor='red')
+
+plt.title(f'{ticker} vs. Taxa Selic')
+plt.grid(True)
+plt.tight_layout()
+fig.text(0.5, 0.01, 'Fonte: Yahoo Finance / Elaboração: Santa Fé Investimentos', ha='center', fontsize=9)
+plt.show()
