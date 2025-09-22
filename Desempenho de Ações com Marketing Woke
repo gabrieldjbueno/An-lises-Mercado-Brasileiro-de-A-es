@@ -1,0 +1,75 @@
+import yfinance as yf
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
+import pandas as pd
+
+# Dados das campanhas
+campaigns = [
+    {"Campanha": "Nike (Kaepernick)", "Ticker": "NKE", "Data da Campanha": "2018-09-04"},
+    {"Campanha": "P&G (Gillette)", "Ticker": "PG", "Data da Campanha": "2019-01-13"},
+    {"Campanha": "PepsiCo (Jenner)", "Ticker": "PEP", "Data da Campanha": "2017-04-04"},
+]
+
+resultados = []
+
+# Gráficos
+fig, axs = plt.subplots(3, 1, figsize=(14, 16), sharex=False)
+fig.subplots_adjust(hspace=0.5)
+fig.suptitle("Desempenho das Ações em torno de Campanhas 'Woke'\nFonte: Yahoo Finance | Elaboração: Santa Fé Investimentos", fontsize=14)
+
+for i, camp in enumerate(campaigns):
+    ticker = camp["Ticker"]
+    name = camp["Campanha"]
+    date = datetime.strptime(camp["Data da Campanha"], "%Y-%m-%d")
+
+    # Baixar dados com folga para frente e para trás
+    df = yf.download(ticker, start=date - timedelta(days=370), end=date + timedelta(days=370))["Close"]
+
+    # Pegar preço mais próximo da data da campanha e da véspera
+    dia_campanha = df.index[df.index.get_indexer([date], method='nearest')[0]]
+    dia_anterior = df.index[df.index.get_indexer([date - timedelta(days=1)], method='nearest')[0]]
+
+    preco_campanha = df.loc[dia_campanha]
+    preco_anterior = df.loc[dia_anterior]
+
+    # Variação no dia
+    variacao_dia = ((preco_campanha - preco_anterior) / preco_anterior) * 100
+
+    # Função para calcular retorno
+    def retorno_em_dias(offset):
+        futura_data = date + timedelta(days=offset)
+        futura_data = df.index[df.index.get_indexer([futura_data], method='nearest')[0]]
+        return ((df.loc[futura_data] - preco_campanha) / preco_campanha) * 100
+
+    # Salvar resultados
+    resultados.append({
+        "Campanha": name,
+        "Ticker": ticker,
+        "Data da Campanha": date.strftime("%Y-%m-%d"),
+        "Preço na Data": round(preco_campanha, 2),
+        "Variação no Dia (%)": round(variacao_dia, 2),
+        "Retorno 3M (%)": round(retorno_em_dias(90), 2),
+        "Retorno 6M (%)": round(retorno_em_dias(180), 2),
+        "Retorno 12M (%)": round(retorno_em_dias(360), 2),
+    })
+
+    # Gráfico
+    axs[i].plot(df.index, df.values, label=f'{ticker}', color='blue')
+    axs[i].axvline(date, color='red', linestyle='--', label='Data da Campanha')
+    axs[i].set_title(name)
+    axs[i].set_ylabel("Preço Ajustado (USD)")
+    axs[i].legend()
+    axs[i].grid(True)
+    axs[i].xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    axs[i].xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+
+plt.xlabel("Data")
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.show()
+
+# Tabela final
+df_final = pd.DataFrame(resultados)
+print("\nFonte: Yahoo Finance | Elaboração: Santa Fé Investimentos\n")
+print(df_final[["Campanha", "Ticker", "Data da Campanha", "Preço na Data",
+                "Variação no Dia (%)", "Retorno 3M (%)", "Retorno 6M (%)", "Retorno 12M (%)"]].to_string(index=False))
