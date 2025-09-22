@@ -1,0 +1,94 @@
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+
+# Tickers e nomes das criptos
+cripto_tickers = {
+    'Bitcoin': 'BTC-USD',
+    'Ethereum': 'ETH-USD',
+    'XRP': 'XRP-USD',
+    'Solana': 'SOL-USD',
+    'BNB': 'BNB-USD'
+}
+
+# Datas
+today = datetime.today()
+start_date = today - timedelta(days=1100)  # ~3 anos
+
+# Baixar dados
+dados = yf.download(list(cripto_tickers.values()), start=start_date, end=today)['Close']
+dados.columns = list(cripto_tickers.keys())
+dados = dados.dropna()
+
+# Normalizar para plot
+dados_norm = dados / dados.iloc[0] * 100
+
+# Plot bonito
+plt.figure(figsize=(12, 7))
+for cripto in dados_norm.columns:
+    plt.plot(dados_norm.index, dados_norm[cripto], label=cripto, linewidth=2)
+
+plt.title("Performance das Criptomoedas nos Últimos 36 Meses", fontsize=14)
+plt.xlabel("Data")
+plt.ylabel("Índice (Base 100)")
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.figtext(0.5, -0.05, "Fonte: Yahoo Finance/ Elaboração Santa Fé Investimentos", ha="center", fontsize=10)
+plt.tight_layout()
+plt.show()
+
+# Períodos de interesse (em meses)
+periodos_meses = [1, 3, 6, 12, 24, 36]
+
+# Função auxiliar para buscar o preço mais próximo à data-alvo
+def get_price_at_or_before(df, target_date):
+    data_disponivel = df.loc[df.index <= target_date]
+    return data_disponivel.iloc[-1] if not data_disponivel.empty else np.nan
+
+# Criar tabelas de rentabilidade e volatilidade
+retorno = {}
+volatilidade = {}
+
+for cripto in dados.columns:
+    serie = dados[cripto].dropna()
+    retorno[cripto] = {}
+    volatilidade[cripto] = {}
+
+    for m in periodos_meses:
+        data_inicio = today - pd.DateOffset(months=m)
+        preco_inicio = get_price_at_or_before(serie, data_inicio)
+        preco_fim = serie.iloc[-1]
+
+        if not np.isnan(preco_inicio) and not np.isnan(preco_fim):
+            ret = (preco_fim / preco_inicio - 1) * 100
+            retorno[cripto][f'{m}M'] = round(ret, 2)
+
+            # Volatilidade anualizada do período
+            periodo_retorno = serie.loc[serie.index >= data_inicio].pct_change().dropna()
+            vol = periodo_retorno.std() * np.sqrt(252) * 100
+            volatilidade[cripto][f'{m}M'] = round(vol, 2)
+        else:
+            retorno[cripto][f'{m}M'] = np.nan
+            volatilidade[cripto][f'{m}M'] = np.nan
+
+# DataFrames organizados
+tabela_retorno = pd.DataFrame(retorno).T
+tabela_vol = pd.DataFrame(volatilidade).T
+
+# Reordenar colunas
+ordem = ['1M', '3M', '6M', '12M', '24M', '36M']
+tabela_retorno = tabela_retorno[ordem]
+tabela_vol = tabela_vol[ordem]
+tabela_retorno.index.name = "Criptomoeda"
+tabela_vol.index.name = "Criptomoeda"
+
+# Exibir resultados
+print("\nRentabilidade (%) nos períodos:")
+display(tabela_retorno)
+
+print("\nVolatilidade Anualizada (%) nos períodos:")
+display(tabela_vol)
+
+
