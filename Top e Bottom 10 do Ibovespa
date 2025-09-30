@@ -1,0 +1,164 @@
+# IBOV – Performance YTD (31/12/2024 até hoje) e Top 10 / Bottom 10
+# Requisitos: pandas, matplotlib, yfinance
+# Observação: este script baixa dados da internet (Yahoo Finance). Execute em ambiente com acesso à rede.
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import yfinance as yf
+from datetime import date
+
+# ========================
+# 1) Lista de tickers Ibovespa (set–dez/2025) – conforme B3
+# ========================
+IBOV_TICKERS = [
+    "ALOS3","ABEV3","ASAI3","AURE3","AZZA3","B3SA3","BBSE3","BBDC3","BBDC4","BRAP4","BBAS3",
+    "BRKM5","BRAV3","BPAC11","CXSE3","CEAB3","CMIG4","COGN3","CPLE6","CSAN3","CPFE3",
+    "CMIN3","CURY3","CVCB3","CYRE3","DIRR3","ELET3","ELET6","EMBR3","ENGI11","ENEV3","EGIE3",
+    "EQTL3","FLRY3","GGBR4","GOAU4","HAPV3","HYPE3","IGTI11","IRBR3","ISAE4","ITSA4","ITUB4",
+    "KLBN11","RENT3","LREN3","MGLU3","POMO4","MBRF3","BEEF3","MOTV3","MRVE3","MULT3",
+    "PCAR3","PETR3","PETR4","RECV3","PRIO3","PSSA3","RADL3","RAIZ4","RDOR3","RAIL3","SBSP3",
+    "SANB11","STBP3","CSNA3","SLCE3","SMFT3","SUZB3","TAEE11","VIVT3","TIMS3","TOTS3","UGPA3",
+    "USIM5","VALE3","VAMO3","VBBR3","VIVA3","WEGE3","YDUQ3"
+]
+
+# Mapeia para o sufixo do Yahoo Finance
+YF_TICKERS = [t + ".SA" for t in IBOV_TICKERS]
+
+# ========================
+# 2) Parâmetros
+# ========================
+DATA_START = "2024-12-01"  # baixa desde início de dez/24 para garantir base do último pregão de 2024
+END   = None                # até hoje (yfinance usa hoje por padrão)
+BASELINE_WINDOW_DAYS = 3    # fallback: mediana dos 3 primeiros pregões de 2025
+USE_LAST_2024_CLOSE = True  # para alinhar com Profit (retorno de preço)
+BASE_DATE_2024 = pd.Timestamp("2024-12-31")
+PRICE_FIELD = "Close"       # use "Adj Close" para total return; "Close" para preço (Profit)
+FONTE_TXT = "Fonte: Yahoo Finance / Elaboração: Santa Fé Investimentos"
+
+# ========================
+# 3) Download de preços
+# ========================
+raw = yf.download(YF_TICKERS, start=DATA_START, end=END, progress=False, group_by='ticker', auto_adjust=False)
+
+# Constrói DataFrame de preços (Close por padrão) com colunas nos tickers base (sem .SA)
+px_df = pd.DataFrame()
+missing = []
+for base, yft in zip(IBOV_TICKERS, YF_TICKERS):
+    try:
+        df_t = raw[yft]
+        # prioriza 'Close' para alinhar com Profit; se não houver, usa 'Adj Close'
+        if "Close" in df_t:
+            s = df_t["Close"].dropna()
+        elif "Adj Close" in df_t:
+            s = df_t["Adj Close"].dropna()
+        else:
+            s = df_t.iloc[:, -1].dropna()
+        if s.empty:
+            missing.append(base)
+        else:
+            px_df[base] = s
+    except Exception:
+        missing.append(base)
+
+if px_df.empty:
+    raise RuntimeError("Sem dados baixados. Verifique conexão e lista de tickers.")
+
+# ========================
+# 4) Cálculo de performance YTD (robusta)
+# ========================
+
+def perf_ytd(series: pd.Series, win: int = BASELINE_WINDOW_DAYS) -> float:
+    s = series.dropna()
+    if s.empty:
+        return np.nan
+    base = np.nan
+    if USE_LAST_2024_CLOSE:
+        s_2024 = s[s.index <= BASE_DATE_2024]
+        if not s_2024.empty:
+            base = s_2024.iloc[-1]
+        else:
+            # fallback: usa a mediana dos primeiros 'win' pregões de 2025
+            s_2025 = s[s.index >= (BASE_DATE_2024 + pd.Timedelta(days=1))]
+            base = s_2025.head(win).median() if not s_2025.empty else np.nan
+    else:
+        s_2025 = s[s.index >= (BASE_DATE_2024 + pd.Timedelta(days=1))]
+        base = s_2025.head(win).median() if not s_2025.empty else np.nan
+    last = s.iloc[-1] if not s.empty else np.nan
+    if not pd.notna(base) or base == 0 or not pd.notna(last):
+        return np.nan
+    return float((last / base - 1.0) * 100.0)
+
+perf = px_df.apply(perf_ytd, axis=0).rename("YTD_%")
+perf = perf.sort_values(ascending=False)
+
+# ========================
+# 5) Top 10 winners & losers
+# ========================
+TOP_N = 10
+winners = perf.head(TOP_N)
+losers  = perf.tail(TOP_N).sort_values(ascending=True)
+
+# ========================
+# 6) Plots
+# ========================
+# Gráfico vencedores
+plt.figure(figsize=(11, 6))
+ax1 = winners.plot(kind='bar', color='green')
+plt.title(f"Ibovespa – Top {TOP_N} YTD (base: 31/12/2024) — {date.today().isoformat()}")
+plt.ylabel("Performance (%)")
+plt.xticks(rotation=45, ha='right')
+plt.grid(axis='y', alpha=0.3)
+# linha de média (Top 10) em preto tracejado
+media_top = winners.mean()
+ax1.axhline(media_top, linestyle='--', linewidth=1.5, color='black')
+va_top = 'bottom' if media_top >= 0 else 'top'
+ax1.text(0.995, media_top, f"Média: {media_top:.2f}%", ha='right', va=va_top, fontsize=9, color='black', transform=ax1.get_yaxis_transform())
+for p in ax1.patches:
+    h = p.get_height()
+    ax1.annotate(f"{h:.2f}%", (p.get_x() + p.get_width()/2.0, h), ha='center', va='bottom', fontsize=8, xytext=(0, 2), textcoords='offset points')
+plt.figtext(0.01, -0.02, FONTE_TXT + " | Base: fechamento de 31/12/2024 (fallback: mediana dos 3 primeiros pregões de 2025)", fontsize=9, ha='left')
+plt.tight_layout()
+plt.savefig(f"ibov_top{TOP_N}_ytd_{date.today().isoformat()}.png", dpi=150, bbox_inches='tight')
+plt.show()
+
+# Gráfico perdedores
+plt.figure(figsize=(11, 6))
+ax2 = losers.plot(kind='bar', color='red')
+plt.title(f"Ibovespa – Bottom {TOP_N} YTD (base: 31/12/2024) — {date.today().isoformat()}")
+plt.ylabel("Performance (%)")
+plt.xticks(rotation=45, ha='right')
+plt.grid(axis='y', alpha=0.3)
+# linha de média (Bottom 10) em preto tracejado
+media_bottom = losers.mean()
+ax2.axhline(media_bottom, linestyle='--', linewidth=1.5, color='black')
+va_bot = 'bottom' if media_bottom >= 0 else 'top'
+ax2.text(0.995, media_bottom, f"Média: {media_bottom:.2f}%", ha='right', va=va_bot, fontsize=9, color='black', transform=ax2.get_yaxis_transform())
+
+# rótulos fora da barra (acima se positivo; abaixo se negativo)
+for p in ax2.patches:
+    h = p.get_height()
+    x = p.get_x() + p.get_width()/2.0
+    if h >= 0:
+        ax2.annotate(f"{h:.2f}%", (x, h), ha='center', va='bottom', fontsize=8,
+                     xytext=(0, 3), textcoords='offset points')
+    else:
+        ax2.annotate(f"{h:.2f}%", (x, h), ha='center', va='top', fontsize=8,
+                     xytext=(0, -3), textcoords='offset points')
+
+plt.figtext(0.01, -0.02, FONTE_TXT + " | Base: fechamento de 31/12/2024 (fallback: mediana dos 3 primeiros pregões de 2025)", fontsize=9, ha='left')
+plt.tight_layout()
+plt.savefig(f"ibov_bottom{TOP_N}_ytd_{date.today().isoformat()}.png", dpi=150, bbox_inches='tight')
+plt.show()
+
+# ========================
+# 7) Saídas
+# ========================
+res = pd.DataFrame({"Ticker": perf.index, "YTD_%": perf.values})
+res.to_csv(f"ibov_ytd_{date.today().isoformat()}.csv", index=False, encoding='utf-8')
+
+print("\nResumo YTD (%):\n", res.head(20))
+print("\nTop 10:\n", winners)
+print("\nBottom 10:\n", losers)
+if missing:
+    print("\nTickers sem dados/alterados no Yahoo:", sorted(missing))
